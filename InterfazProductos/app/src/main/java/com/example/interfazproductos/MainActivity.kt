@@ -82,12 +82,12 @@ fun ProductScreen() {
     val products = remember {
         mutableStateListOf(
             Product("00001", "PIPAS EXTRA 80 GR.", "Uds", 87, "%", 11.34, 1, true, R.drawable.pipas),
-            Product("00002", "FINI BOOM FRESA 200 U", "Cajas", 90, "%", 13.91, 0, false, R.drawable.fini_boom),
-            Product("00003", "TARRO CHILES RELLENOLAS", "Cajas", 70, "25%", 22.50, 0, false, R.drawable.chiles),
-            Product("00004", "RESPIRAL LIMON KG", "Cajas", 36, "%", 16.88,0,false, R.drawable.limon),
-            Product("00005", "MENTOLIN MAURI", "Cajas", 0, "%", 13.91, 0, false, R.drawable.mauri),
-            Product("00006", "RESPIRAL EUCALIPTO KG", "Cajas", 40, "%", 14.11, 0,false, R.drawable.respiral),
-            Product("00007", "ZUMO DE NARANJA NATURAL 330 ML", "Uds", 55, "10%", 2.15, 0,false, R.drawable.zumo)
+            Product("00002", "FINI BOOM FRESA 200 U", "Cajas", 90, "%", 13.91, 1, false, R.drawable.fini_boom),
+            Product("00003", "TARRO CHILES RELLENOLAS", "Cajas", 70, "25%", 22.50, 1, false, R.drawable.chiles),
+            Product("00004", "RESPIRAL LIMON KG", "Cajas", 36, "%", 16.88,1,false, R.drawable.limon),
+            Product("00005", "MENTOLIN MAURI", "Cajas", 0, "%", 13.91, 1, false, R.drawable.mauri),
+            Product("00006", "RESPIRAL EUCALIPTO KG", "Cajas", 40, "%", 14.11, 1,false, R.drawable.respiral),
+            Product("00007", "ZUMO DE NARANJA NATURAL 330 ML", "Uds", 55, "10%", 2.15, 1,false, R.drawable.zumo)
         )
     }
 
@@ -136,8 +136,14 @@ fun ProductScreen() {
                 products = products,
                 modifier = Modifier.weight(1f),
                 onSelect = { clickedProduct ->
+                    // Recorremos la lista para actualizar todos los productos a la vez
                     products.forEachIndexed { index, p ->
-                        products[index] = p.copy(isSelected = p.id == clickedProduct.id)
+                        val isThisSelected = p.id == clickedProduct.id
+                        products[index] = p.copy(
+                            isSelected = isThisSelected,
+                            // Si es el seleccionado ponemos 1, si no, 0
+                            quantity = if (isThisSelected) 1 else 0
+                        )
                     }
                 }
             )
@@ -354,48 +360,63 @@ fun ProductEntrySection(
     onQuantityChange: (Int) -> Unit,
     onPriceChange: (Double) -> Unit
 ) {
+    // Control del desplegable
     var expanded by remember { mutableStateOf(false) }
 
-    // 1. Definimos las tarifas fijas basadas en un precio de referencia
-    // Usamos remember(selectedProduct?.id) para que solo se recalculen si cambias de producto,
-    // pero que no cambien si solo cambias el precio actual.
+    // Tarifas fijas: se recalculan solo si cambia el ID del producto seleccionado
     val tarifasFijas = remember(selectedProduct?.id) {
         if (selectedProduct != null) {
             listOf(
-                selectedProduct.price,       // Tarifa Original (P)
-                selectedProduct.price * 0.9, // Tarifa Especial (-10%)
-                selectedProduct.price * 0.8  // Tarifa Mayorista (-20%)
+                selectedProduct.price,       // Tarifa 1 (Base)
+                selectedProduct.price * 0.9, // Tarifa 2 (-10%)
+                selectedProduct.price * 0.8  // Tarifa 3 (-20%)
             )
         } else emptyList()
     }
 
-    var textValue by remember(selectedProduct?.id) {
-        mutableStateOf(selectedProduct?.quantity?.toString() ?: "")
+    // Sincronizar el texto del cuadro con la cantidad del producto
+    var textValue by remember(selectedProduct?.id, selectedProduct?.quantity) {
+        mutableStateOf(selectedProduct?.quantity?.toString() ?: "0")
     }
 
     Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFF0F4F8)).padding(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Precio", color = Color.Gray, modifier = Modifier.weight(0.8f))
 
+            // --- 1. IMAGEN DEL PRODUCTO SELECCIONADO ---
+            if (selectedProduct != null) {
+                Image(
+                    painter = painterResource(id = selectedProduct.imageRes),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+
+            Text("Precio", color = Color.Gray, modifier = Modifier.weight(0.7f))
+
+            // --- 2. DESPLEGABLE DE PRECIO ---
             ExposedDropdownMenuBox(
                 expanded = expanded,
                 onExpandedChange = { expanded = !expanded },
                 modifier = Modifier.weight(2f)
             ) {
                 OutlinedTextField(
-                    // Mostramos el precio actual del producto seleccionado
                     value = "${"%.2f".format(selectedProduct?.price ?: 0.0)}",
                     onValueChange = {},
                     readOnly = true,
-                    modifier = Modifier.menuAnchor().height(52.dp).fillMaxWidth(),
+                    modifier = Modifier.menuAnchor().height(48.dp).fillMaxWidth(),
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedContainerColor = Color.White,
                         focusedContainerColor = Color.White,
                         unfocusedBorderColor = Color.Transparent
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    shape = RoundedCornerShape(8.dp),
+                    textStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 )
 
                 ExposedDropdownMenu(
@@ -403,12 +424,11 @@ fun ProductEntrySection(
                     onDismissRequest = { expanded = false },
                     modifier = Modifier.background(Color.White)
                 ) {
-                    // 2. Usamos la lista de tarifas fijas para que los números no varíen
-                    tarifasFijas.forEach { precioTarifa ->
+                    tarifasFijas.forEach { precio ->
                         DropdownMenuItem(
-                            text = { Text("${"%.2f".format(precioTarifa)} €") },
+                            text = { Text("${"%.2f".format(precio)} €") },
                             onClick = {
-                                onPriceChange(precioTarifa)
+                                onPriceChange(precio)
                                 expanded = false
                             }
                         )
@@ -416,9 +436,10 @@ fun ProductEntrySection(
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Text("Uds", color = Color.Gray)
 
+            // --- 3. CUADRO DE UNIDADES ---
             OutlinedTextField(
                 value = textValue,
                 onValueChange = {
@@ -427,22 +448,27 @@ fun ProductEntrySection(
                         onQuantityChange(it.toIntOrNull() ?: 0)
                     }
                 },
-                modifier = Modifier.height(52.dp).width(75.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, unfocusedBorderColor = Color.Transparent)
+                modifier = Modifier.height(48.dp).width(65.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = Color.White,
+                    focusedContainerColor = Color.White,
+                    unfocusedBorderColor = Color.Transparent
+                ),
+                textStyle = TextStyle(textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
             )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Bloque de Totales
+        // Fila de Totales y Descuento
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("%Dto", color = Color.Gray)
-            Text(" 10% + ", fontWeight = FontWeight.Bold)
-            Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold)
+            Text(" 10% + ", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Spacer(modifier = Modifier.weight(1f))
             Text("Total ", color = Color.Gray)
-            Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1B5E20))
         }
     }
 }
@@ -551,10 +577,12 @@ fun ProductItemRow(product: Product, onClick: () -> Unit) {
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = if (product.quantity > 0) product.quantity.toString() else "0",
+                text = product.quantity.toString(), // Siempre mostrará 1 si está seleccionado o 0 si no
                 modifier = Modifier.width(30.dp),
                 textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = if (product.isSelected) Color(0xFF2196F3) else Color.Gray
             )
         }
     }
