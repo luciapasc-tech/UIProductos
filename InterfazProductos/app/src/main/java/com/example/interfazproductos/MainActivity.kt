@@ -35,7 +35,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import coil.compose.AsyncImage
 
 // --- MODELO DE DATOS ---
 data class Product(
@@ -46,7 +48,8 @@ data class Product(
     val discountPercent: String?,
     val price: Double,
     val quantity: Int = 0,
-    val isSelected: Boolean = false
+    val isSelected: Boolean = false,
+    val imageRes: Int
 ) {
     // Calculamos el precio total: precio base por cantidad (mínimo 1 para mostrar el precio base)
     val totalProductPrice: Double get() = price * (if (quantity == 0) 1 else quantity)
@@ -78,13 +81,13 @@ fun ProductScreen() {
     // --- ESTADO DE LA LISTA ---
     val products = remember {
         mutableStateListOf(
-            Product("00001", "PIPAS EXTRA 80 GR. (1,30€) 20 U 34", "Uds", 87, "%", 11.34, 1, true),
-            Product("00002", "FINI BOOM FRESA 200 U", "Cajas", 90, "%", 13.91),
-            Product("00003", "TARRO CHILES RELLENOLAS VIDAL 75 U", "Cajas", 70, "25%", 22.50),
-            Product("00004", "RESPIRAL LIMON KG", "Cajas", 36, "%", 16.88),
-            Product("00005", "MENTOLIN MAURI", "Cajas", 0, "%", 13.91),
-            Product("00006", "RESPIRAL EUCALIPTO KG", "Cajas", 40, "%", 14.11),
-            Product("00007", "ZUMO DE NARANJA NATURAL 330 ML", "Uds", 55, "10%", 2.15)
+            Product("00001", "PIPAS EXTRA 80 GR.", "Uds", 87, "%", 11.34, 1, true, R.drawable.pipas),
+            Product("00002", "FINI BOOM FRESA 200 U", "Cajas", 90, "%", 13.91, 0, false, R.drawable.fini_boom),
+            Product("00003", "TARRO CHILES RELLENOLAS", "Cajas", 70, "25%", 22.50, 0, false, R.drawable.chiles),
+            Product("00004", "RESPIRAL LIMON KG", "Cajas", 36, "%", 16.88,0,false, R.drawable.limon),
+            Product("00005", "MENTOLIN MAURI", "Cajas", 0, "%", 13.91, 0, false, R.drawable.mauri),
+            Product("00006", "RESPIRAL EUCALIPTO KG", "Cajas", 40, "%", 14.11, 0,false, R.drawable.respiral),
+            Product("00007", "ZUMO DE NARANJA NATURAL 330 ML", "Uds", 55, "10%", 2.15, 0,false, R.drawable.zumo)
         )
     }
 
@@ -107,7 +110,7 @@ fun ProductScreen() {
                         products[selectedIndex] = products[selectedIndex].copy(quantity = newQty)
                     }
                 },
-                onPriceChange = { newPrice -> // <--- NUEVA LÓGICA
+                onPriceChange = { newPrice ->
                     if (selectedIndex != -1) {
                         products[selectedIndex] = products[selectedIndex].copy(price = newPrice)
                     }
@@ -121,7 +124,7 @@ fun ProductScreen() {
                         products[selectedIndex] = products[selectedIndex].copy(quantity = currentQty + extra)
                     }
                 },
-                onResetQuantity = { // <--- NUEVA LÓGICA PARA LA X
+                onResetQuantity = { // logica de x
                     if (selectedIndex != -1) {
                         products[selectedIndex] = products[selectedIndex].copy(quantity = 0)
                     }
@@ -162,14 +165,14 @@ fun ProductScreen() {
                 }
             }
 
-            // --- EL BOTÓN DE LOS 3 PUNTOS (Activa/Desactiva las opciones) ---
+            // --- BOTÓN DE LOS 3 PUNTOS (Activa/Desactiva las opciones) ---
             FloatingActionButton(
                 onClick = { showOptions = !showOptions }, // Cambia el estado al pulsar
                 containerColor = Color(0xFFA8B8D0),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.size(56.dp)
             ) {
-                // Cambia el icono si está abierto o cerrado para que quede más pro
+                // Cambia el icono si está abierto o cerrado
                 Icon(
                     imageVector = if (showOptions) Icons.Default.Close else Icons.Default.MoreHoriz,
                     contentDescription = "Opciones adicionales",
@@ -225,7 +228,7 @@ fun FilterSideMenu(onClose: () -> Unit) {
                         fontWeight = FontWeight.Medium
                     )
 
-                    // Botón de cerrar (X con círculo)
+                    // Botón de cerrar
                     IconButton(
                         onClick = onClose,
                         modifier = Modifier
@@ -263,14 +266,13 @@ fun FilterMenuItem(text: String) {
         fontWeight = FontWeight.Normal,
         modifier = Modifier
             .fillMaxWidth()
-        // Aquí podrías añadir un clickable en el futuro para que haga algo
         // .clickable { /* Acción del filtro */ }
     )
 }
 
 // 1. Menú Superior
 @Composable
-fun TopMenuRow(onMenuClick: () -> Unit) { // <--- Añadimos este parámetro
+fun TopMenuRow(onMenuClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -316,7 +318,7 @@ fun TopMenuItem(icon: ImageVector, label: String, isSelected: Boolean = false, h
     }
 }
 
-// 2. Cabecera del Pedido (Fondo oscuro)
+// 2. Cabecera del pedido (Fondo oscuro)
 @Composable
 fun OrderHeaderRow(total: Double) {
     Row(
@@ -354,7 +356,7 @@ fun ProductEntrySection(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    // 1. Definimos las tarifas fijas basadas en un precio de referencia.
+    // 1. Definimos las tarifas fijas basadas en un precio de referencia
     // Usamos remember(selectedProduct?.id) para que solo se recalculen si cambias de producto,
     // pero que no cambien si solo cambias el precio actual.
     val tarifasFijas = remember(selectedProduct?.id) {
@@ -470,7 +472,7 @@ fun QuickActionsRow(onAddQuantity: (Int) -> Unit, onResetQuantity: () -> Unit) {
             }
         }
 
-        // --- BOTÓN X GRIS (CORREGIDO) ---
+        // Boton gris
         Box(
             modifier = Modifier
                 .background(Color(0xFF8B92A0), CircleShape)
@@ -480,12 +482,12 @@ fun QuickActionsRow(onAddQuantity: (Int) -> Unit, onResetQuantity: () -> Unit) {
             Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
 
-        // Botón Regalo
+        // Botón regalo
         Box(modifier = Modifier.background(Color(0xFFFF7043), CircleShape).padding(6.dp).clickable { /* Acción */ }) {
             Icon(Icons.Default.CardGiftcard, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
 
-        // Botón Carrito
+        // Botón carrito
         Box(modifier = Modifier.background(Color.Black, CircleShape).padding(6.dp).clickable { /* Acción */ }) {
             Icon(Icons.Default.ShoppingCart, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
@@ -506,31 +508,48 @@ fun ProductList(products: List<Product>, modifier: Modifier, onSelect: (Product)
 @Composable
 fun ProductItemRow(product: Product, onClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = if (product.isSelected) Color(0xFFE3F2FD) else Color.White),
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = if (product.isSelected) Color(0xFFE3F2FD) else Color.White
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).background(Color.LightGray, RoundedCornerShape(8.dp)))
-            Spacer(modifier = Modifier.width(8.dp))
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // --- IMAGEN DESDE RES ---
+            Image(
+                painter = painterResource(id = product.imageRes),
+                contentDescription = product.name,
+                modifier = Modifier
+                    .size(50.dp) // Tamaño exacto de tu hueco en el diseño
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.LightGray),
+                contentScale = ContentScale.Crop // Para que la foto rellene el cuadro sin deformarse
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(product.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    Text(product.id, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(40.dp))
+                    Text(product.id, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(45.dp))
                     Text("Stock: ${product.stock}", fontSize = 10.sp, modifier = Modifier.width(60.dp))
                     Spacer(modifier = Modifier.weight(1f))
-                    // PRECIO FINAL MODIFICADO SEGÚN UNIDADES
                     Text("${"%.2f".format(product.totalProductPrice)} €", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
+
+            // ... resto del código (Icono Check y Cantidad)
             Icon(
                 Icons.Default.CheckCircle, null,
                 tint = if (product.isSelected) Color(0xFF2196F3) else Color(0xFFE0E0E0),
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            // Muestra la cantidad actual
             Text(
                 text = if (product.quantity > 0) product.quantity.toString() else "0",
                 modifier = Modifier.width(30.dp),
@@ -565,7 +584,7 @@ fun BottomStatusBar() {
 fun FloatingOptionButton(icon: ImageVector, label: String) {
     Surface(
         shape = RoundedCornerShape(32.dp),
-        color = Color(0xFF9BAABF), // Color gris azulado de la foto
+        color = Color(0xFF9BAABF), // Color gris azulado
         shadowElevation = 4.dp
     ) {
         Row(
