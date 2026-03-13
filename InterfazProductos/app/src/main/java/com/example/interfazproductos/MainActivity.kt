@@ -28,11 +28,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.interfazproductos.ui.theme.InterfazProductosTheme
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.TextStyle
 
 // --- MODELO DE DATOS ---
 data class Product(
@@ -80,17 +83,20 @@ fun ProductScreen() {
             Product("00003", "TARRO CHILES RELLENOLAS VIDAL 75 U", "Cajas", 70, "25%", 22.50),
             Product("00004", "RESPIRAL LIMON KG", "Cajas", 36, "%", 16.88),
             Product("00005", "MENTOLIN MAURI", "Cajas", 0, "%", 13.91),
-            Product("00006", "RESPIRAL EUCALIPTO KG", "Cajas", 40, "%", 14.11)
+            Product("00006", "RESPIRAL EUCALIPTO KG", "Cajas", 40, "%", 14.11),
+            Product("00007", "ZUMO DE NARANJA NATURAL 330 ML", "Uds", 55, "10%", 2.15)
         )
     }
 
     // Identificar producto seleccionado
     val selectedIndex = products.indexOfFirst { it.isSelected }
     val selectedProduct = if (selectedIndex != -1) products[selectedIndex] else null
+    //var showFilterMenu by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            TopMenuRow()
+            TopMenuRow(onMenuClick = { showFilterMenu = true })
             // Sincronizado con el total del seleccionado
             OrderHeaderRow(total = selectedProduct?.totalProductPrice ?: 0.0)
 
@@ -100,10 +106,27 @@ fun ProductScreen() {
                     if (selectedIndex != -1) {
                         products[selectedIndex] = products[selectedIndex].copy(quantity = newQty)
                     }
+                },
+                onPriceChange = { newPrice -> // <--- NUEVA LÓGICA
+                    if (selectedIndex != -1) {
+                        products[selectedIndex] = products[selectedIndex].copy(price = newPrice)
+                    }
                 }
             )
-
-            QuickActionsRow()
+            // Pasamos la acción de sumar al componente
+            QuickActionsRow(
+                onAddQuantity = { extra ->
+                    if (selectedIndex != -1) {
+                        val currentQty = products[selectedIndex].quantity
+                        products[selectedIndex] = products[selectedIndex].copy(quantity = currentQty + extra)
+                    }
+                },
+                onResetQuantity = { // <--- NUEVA LÓGICA PARA LA X
+                    if (selectedIndex != -1) {
+                        products[selectedIndex] = products[selectedIndex].copy(quantity = 0)
+                    }
+                }
+            )
 
             // Lista de productos
             ProductList(
@@ -118,13 +141,41 @@ fun ProductScreen() {
             BottomStatusBar()
         }
 
-        FloatingActionButton(
-            onClick = { showFilterMenu = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 72.dp),
-            containerColor = Color(0xFFA8B8D0),
-            shape = RoundedCornerShape(16.dp)
+        // --- CAPA DE OPCIONES FLOTANTES (Upsell, Cross-Sell...) ---
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 72.dp), // Alineado sobre el FAB
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Default.MoreHoriz, "Opciones", tint = Color.White)
+            // Solo se muestran si showOptions es true
+            AnimatedVisibility(
+                visible = showOptions,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FloatingOptionButton(Icons.Default.ArrowCircleUp, "Upsell")
+                    FloatingOptionButton(Icons.Default.SyncAlt, "Cross-Sell")
+                    FloatingOptionButton(Icons.Default.Autorenew, "Sustitutivos")
+                }
+            }
+
+            // --- EL BOTÓN DE LOS 3 PUNTOS (Activa/Desactiva las opciones) ---
+            FloatingActionButton(
+                onClick = { showOptions = !showOptions }, // Cambia el estado al pulsar
+                containerColor = Color(0xFFA8B8D0),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.size(56.dp)
+            ) {
+                // Cambia el icono si está abierto o cerrado para que quede más pro
+                Icon(
+                    imageVector = if (showOptions) Icons.Default.Close else Icons.Default.MoreHoriz,
+                    contentDescription = "Opciones adicionales",
+                    tint = Color.White
+                )
+            }
         }
 
         AnimatedVisibility(visible = showFilterMenu, enter = fadeIn(), exit = fadeOut()) {
@@ -219,7 +270,7 @@ fun FilterMenuItem(text: String) {
 
 // 1. Menú Superior
 @Composable
-fun TopMenuRow() {
+fun TopMenuRow(onMenuClick: () -> Unit) { // <--- Añadimos este parámetro
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -233,8 +284,9 @@ fun TopMenuRow() {
         TopMenuItem(Icons.Default.MenuBook, "Tarifa", isSelected = true)
         TopMenuItem(Icons.Default.StarBorder, "Favoritos", hasBadge = true)
         TopMenuItem(Icons.Default.GridView, "Catálogo")
-        IconButton(onClick = { /*TODO*/ }) {
-            Icon(Icons.Default.Menu, contentDescription = "Menú")
+
+        IconButton(onClick = onMenuClick) { // <--- Ahora usa el onMenuClick
+            Icon(Icons.Default.Menu, contentDescription = "Abrir Menú Filtros")
         }
     }
 }
@@ -293,28 +345,78 @@ fun OrderHeaderRow(total: Double) {
 }
 
 // 3. Sección de Entradas (Precio, Dto, Buscar)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProductEntrySection(selectedProduct: Product?, onQuantityChange: (Int) -> Unit) {
-    // ESTADO ARREGLADO: Usamos un String temporal para permitir borrar el cuadro
+fun ProductEntrySection(
+    selectedProduct: Product?,
+    onQuantityChange: (Int) -> Unit,
+    onPriceChange: (Double) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // 1. Definimos las tarifas fijas basadas en un precio de referencia.
+    // Usamos remember(selectedProduct?.id) para que solo se recalculen si cambias de producto,
+    // pero que no cambien si solo cambias el precio actual.
+    val tarifasFijas = remember(selectedProduct?.id) {
+        if (selectedProduct != null) {
+            listOf(
+                selectedProduct.price,       // Tarifa Original (P)
+                selectedProduct.price * 0.9, // Tarifa Especial (-10%)
+                selectedProduct.price * 0.8  // Tarifa Mayorista (-20%)
+            )
+        } else emptyList()
+    }
+
     var textValue by remember(selectedProduct?.id) {
         mutableStateOf(selectedProduct?.quantity?.toString() ?: "")
     }
 
     Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFF0F4F8)).padding(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Precio", color = Color.Gray, modifier = Modifier.weight(1f))
-            OutlinedTextField(
-                value = selectedProduct?.price?.toString() ?: "0.00",
-                onValueChange = {},
-                readOnly = true,
-                modifier = Modifier.height(48.dp).weight(2f),
-                trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, unfocusedBorderColor = Color.Transparent)
-            )
+            Text("Precio", color = Color.Gray, modifier = Modifier.weight(0.8f))
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier.weight(2f)
+            ) {
+                OutlinedTextField(
+                    // Mostramos el precio actual del producto seleccionado
+                    value = "${"%.2f".format(selectedProduct?.price ?: 0.0)}",
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier.menuAnchor().height(52.dp).fillMaxWidth(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = Color.White,
+                        focusedContainerColor = Color.White,
+                        unfocusedBorderColor = Color.Transparent
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    textStyle = TextStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                )
+
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.background(Color.White)
+                ) {
+                    // 2. Usamos la lista de tarifas fijas para que los números no varíen
+                    tarifasFijas.forEach { precioTarifa ->
+                        DropdownMenuItem(
+                            text = { Text("${"%.2f".format(precioTarifa)} €") },
+                            onClick = {
+                                onPriceChange(precioTarifa)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.width(16.dp))
             Text("Uds", color = Color.Gray)
 
-            // Cuadro de Unidades con corrección de borrado
             OutlinedTextField(
                 value = textValue,
                 onValueChange = {
@@ -323,57 +425,69 @@ fun ProductEntrySection(selectedProduct: Product?, onQuantityChange: (Int) -> Un
                         onQuantityChange(it.toIntOrNull() ?: 0)
                     }
                 },
-                modifier = Modifier.height(48.dp).width(70.dp),
+                modifier = Modifier.height(52.dp).width(75.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, unfocusedBorderColor = Color.Transparent)
             )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Bloque de Totales
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("%Dto", color = Color.Gray)
             Text(" 10% + ", fontWeight = FontWeight.Bold)
             Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
             Text("Total ", color = Color.Gray)
-            Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("${"%.2f".format(selectedProduct?.totalProductPrice ?: 0.0)} €", fontWeight = FontWeight.Bold, fontSize = 18.sp)
         }
     }
 }
 
 // 4. Botones de Acción Rápida
 @Composable
-fun QuickActionsRow() {
+fun QuickActionsRow(onAddQuantity: (Int) -> Unit, onResetQuantity: () -> Unit) {
+    val amounts = listOf(1, 5, 10, 25, 50)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF6B7280)) // Gris oscuro
+            .background(Color(0xFF6B7280))
             .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val actions = listOf("+1", "+5", "+10", "+25", "+50")
-        actions.forEach { text ->
+        // Botones numéricos
+        amounts.forEach { amount ->
             Box(
                 modifier = Modifier
                     .border(1.dp, Color.LightGray, CircleShape)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .clickable { onAddQuantity(amount) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("+$amount", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
 
-        Box(modifier = Modifier.background(Color(0xFF8B92A0), CircleShape).padding(6.dp)) {
-            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White, modifier = Modifier.size(16.dp))
+        // --- BOTÓN X GRIS (CORREGIDO) ---
+        Box(
+            modifier = Modifier
+                .background(Color(0xFF8B92A0), CircleShape)
+                .padding(6.dp)
+                .clickable { onResetQuantity() } // <--- Aquí llama a la función de reset
+        ) {
+            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
 
-        Box(modifier = Modifier.background(Color(0xFFFF7043), CircleShape).padding(6.dp)) {
-            Icon(Icons.Default.CardGiftcard, contentDescription = "Regalo", tint = Color.White, modifier = Modifier.size(16.dp))
+        // Botón Regalo
+        Box(modifier = Modifier.background(Color(0xFFFF7043), CircleShape).padding(6.dp).clickable { /* Acción */ }) {
+            Icon(Icons.Default.CardGiftcard, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
 
-        Box(modifier = Modifier.background(Color.Black, CircleShape).padding(6.dp)) {
-            Icon(Icons.Default.ShoppingCart, contentDescription = "Carrito", tint = Color.White, modifier = Modifier.size(16.dp))
+        // Botón Carrito
+        Box(modifier = Modifier.background(Color.Black, CircleShape).padding(6.dp).clickable { /* Acción */ }) {
+            Icon(Icons.Default.ShoppingCart, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -443,6 +557,26 @@ fun BottomStatusBar() {
             Icon(Icons.Default.SortByAlpha, contentDescription = "Ordenar", tint = Color.DarkGray)
             Spacer(modifier = Modifier.width(16.dp))
             Icon(Icons.Default.FilterList, contentDescription = "Filtrar", tint = Color.DarkGray)
+        }
+    }
+}
+
+@Composable
+fun FloatingOptionButton(icon: ImageVector, label: String) {
+    Surface(
+        shape = RoundedCornerShape(32.dp),
+        color = Color(0xFF9BAABF), // Color gris azulado de la foto
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clickable { /* Acción */ },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Text(text = label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
