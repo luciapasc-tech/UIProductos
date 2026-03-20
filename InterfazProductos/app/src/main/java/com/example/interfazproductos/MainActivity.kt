@@ -1,5 +1,6 @@
 package com.example.interfazproductos
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -32,7 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.interfazproductos.ui.theme.InterfazProductosTheme
 
-// --- MODELO DE DATOS ---
+/**
+ * MODELO DE DATOS: Define las propiedades de cada producto.
+ * totalProductPrice: Propiedad calculada para obtener el subtotal según la cantidad.
+ */
 data class Product(
     val id: String,
     val name: String,
@@ -46,6 +51,7 @@ data class Product(
 ) {
     val totalProductPrice: Double get() = price * (if (quantity == 0) 1 else quantity)
 }
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,9 +67,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * PANTALLA PRINCIPAL (ProductScreen):
+ * Gestiona el estado global (productos, búsqueda, favoritos, carrito) y
+ * organiza la jerarquía de la interfaz de usuario.
+ */
 @Composable
 fun ProductScreen() {
-    // --- ESTADOS ---
+    // --- Estados de datos ---
     val products = remember {
         mutableStateListOf(
             Product("00001", "PIPAS EXTRA 80 GR.", "Uds", 87, "%", 11.34, 1, true, R.drawable.pipas),
@@ -76,24 +87,46 @@ fun ProductScreen() {
         )
     }
 
+    // --- ESTADOS DE UI Y NAVEGACIÓN ---
+    var searchQuery by remember { mutableStateOf("") }
+
+    // --- ESTADO DE FAVORITOS (IDs) ---
+    val favoriteIds = remember { mutableStateListOf<String>() }
+    var showFavoritesScreen by remember { mutableStateOf(false) }
+
+    val filteredProducts = products.filter {
+        it.name.contains(searchQuery, ignoreCase = true)
+    }
+
     val basketProducts = remember { mutableStateListOf<Product>() }
     var showFilterMenu by remember { mutableStateOf(false) }
     var showBasketScreen by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+    val activity = (context as? Activity)
+
+    // Identificar qué producto está seleccionado actualmente para editar
     val selectedIndex = products.indexOfFirst { it.isSelected }
     val selectedProduct = if (selectedIndex != -1) products[selectedIndex] else null
 
     Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         Column(modifier = Modifier.fillMaxSize()) {
+
+            // 1. Fila superior: Pasamos cantidad de favoritos al badge
             TopMenuRow(
                 onMenuClick = { showFilterMenu = true },
-                onBasketClick = { showBasketScreen = true }
+                onBasketClick = { showBasketScreen = true },
+                onExitClick = { activity?.finish() },
+                onFavoritesClick = { showFavoritesScreen = true },
+                favoritesCount = favoriteIds.size
             )
 
+            // 2. Cabecera del pedido (Muestra el total acumulado)
             val totalGeneral = products.sumOf { it.price * it.quantity }
             OrderHeaderRow(total = totalGeneral)
 
+            // 3. Panel de edición (Modifica el producto seleccionado)
             ProductEntrySection(
                 selectedProduct = selectedProduct,
                 onQuantityChange = { newQty ->
@@ -104,6 +137,7 @@ fun ProductScreen() {
                 }
             )
 
+            // 4. Botonera de acciones rápidas (+1, +5, etc.)
             QuickActionsRow(
                 onAddQuantity = { extra ->
                     if (selectedIndex != -1) {
@@ -116,19 +150,40 @@ fun ProductScreen() {
                 }
             )
 
-            ProductList(
-                products = products,
-                modifier = Modifier.weight(1f),
-                onSelect = { clickedProduct ->
-                    products.forEachIndexed { index, p ->
-                        val isThisSelected = p.id == clickedProduct.id
-                        products[index] = p.copy(
-                            isSelected = isThisSelected,
-                            quantity = if (isThisSelected && p.quantity == 0) 1 else p.quantity
-                        )
-                    }
-                }
+            // 5. Barra de búsqueda
+            SearchBarRow(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it }
             )
+
+            // 6. Listado de productos scrolleable
+            Box(modifier = Modifier.weight(1f)) {
+                if (filteredProducts.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(text = "Producto no encontrado", style = TextStyle(fontSize = 18.sp, color = Color.Gray))
+                    }
+                } else {
+                    ProductList(
+                        products = filteredProducts,
+                        favoriteIds = favoriteIds,
+                        modifier = Modifier.fillMaxSize(),
+                        onSelect = { clickedProduct ->
+                            products.forEachIndexed { index, p ->
+                                val isThisSelected = p.id == clickedProduct.id
+                                products[index] = p.copy(
+                                    isSelected = isThisSelected,
+                                    quantity = if (isThisSelected && p.quantity == 0) 1 else p.quantity
+                                )
+                            }
+                        },
+                        onToggleFavorite = { id ->
+                            if (favoriteIds.contains(id)) favoriteIds.remove(id) else favoriteIds.add(id)
+                        }
+                    )
+                }
+            }
+
+            //Barra de estado inferior
             BottomStatusBar()
         }
 
@@ -146,7 +201,7 @@ fun ProductScreen() {
                         onClick = {
                             selectedProduct?.let {
                                 if (it.quantity > 0) {
-                                    basketProducts.add(it.copy()) // Añadimos copia a la cesta
+                                    basketProducts.add(it.copy())
                                     showOptions = false
                                 }
                             }
@@ -156,7 +211,6 @@ fun ProductScreen() {
                     FloatingOptionButton(Icons.Default.Autorenew, "Sustitutivos", onClick = {})
                 }
             }
-
             FloatingActionButton(
                 onClick = { showOptions = !showOptions },
                 containerColor = Color(0xFFA8B8D0),
@@ -166,208 +220,160 @@ fun ProductScreen() {
             }
         }
 
-        // --- PANTALLAS SUPERPUESTAS (Independientes) ---
-
-        // Filtro
+        // --- PANTALLAS SUPERPUESTAS --- menu lateral de filtros
         AnimatedVisibility(visible = showFilterMenu, enter = fadeIn(), exit = fadeOut()) {
             FilterSideMenu(onClose = { showFilterMenu = false })
         }
 
-        // Cesta (FUERA del AnimatedVisibility de filtros)
+        // Pantalla del Carrito
         AnimatedVisibility(
             visible = showBasketScreen,
             enter = slideInHorizontally(initialOffsetX = { it }),
             exit = slideOutHorizontally(targetOffsetX = { it })
         ) {
-            BasketScreen(
-                basketItems = basketProducts,
-                onClose = { showBasketScreen = false },
-                onRemove = { basketProducts.remove(it) }
+            BasketScreen(basketItems = basketProducts, onClose = { showBasketScreen = false }, onRemove = { basketProducts.remove(it) })
+        }
+
+        // Pantalla favoritos
+        AnimatedVisibility(
+            visible = showFavoritesScreen,
+            enter = slideInHorizontally(initialOffsetX = { -it }),
+            exit = slideOutHorizontally(targetOffsetX = { -it })
+        ) {
+            FavoritesScreen(
+                allProducts = products,
+                favoriteIds = favoriteIds,
+                onClose = { showFavoritesScreen = false },
+                onToggleFavorite = { id -> favoriteIds.remove(id) }
             )
         }
     }
 }
 
-// --- Pantalla cesta ---
-
+/**
+ * PANTALLA DE FAVORITOS: Filtra los productos originales basándose en la lista de IDs guardados.
+ */
 @Composable
-fun BasketScreen(
-    basketItems: List<Product>,
-    onClose: () -> Unit,
-    onRemove: (Product) -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
-            .clickable { onClose() }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(0.85f)
-                .background(Color.White)
-                .align(Alignment.CenterEnd)
-                .clickable(enabled = false) { }
-        ) {
-            // Cabecera
+fun FavoritesScreen(allProducts: List<Product>, favoriteIds: List<String>, onClose: () -> Unit, onToggleFavorite: (String) -> Unit) {
+    val favoriteItems = allProducts.filter { favoriteIds.contains(it.id) }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF7F2EC))) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF2196F3))
-                    .padding(20.dp),
+                modifier = Modifier.fillMaxWidth().background(Color(0xFFFFB300)).padding(20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Precompra", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, null, tint = Color.White)
-                }
+                IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) }
+                Text("Mis Favoritos", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
-
-            // Lista de productos
-            LazyColumn(modifier = Modifier.weight(1f).padding(8.dp)) {
-                items(basketItems) { item ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Image(
-                            painter = painterResource(id = item.imageRes),
-                            contentDescription = null,
-                            modifier = Modifier.size(45.dp).clip(RoundedCornerShape(8.dp)),
-                            contentScale = ContentScale.Crop
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text("${item.quantity} x ${"%.2f".format(item.price)}€", fontSize = 11.sp)
-                        }
-                        IconButton(onClick = { onRemove(item) }) {
-                            Icon(Icons.Default.Delete, null, tint = Color.Red)
-                        }
-                    }
-                    HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
+            if (favoriteItems.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No tienes favoritos marcados", color = Color.Gray)
                 }
-            }
-
-            // --- SECCIÓN INFERIOR: TOTAL Y BOTÓN DE PAGAR ---
-            val total = basketItems.sumOf { it.price * it.quantity }
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 8.dp,
-                color = Color(0xFFF1F3F4)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("TOTAL:", fontWeight = FontWeight.Bold, color = Color.Gray)
-                        Text("${"%.2f".format(total)} €", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1B5E20))
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // BOTÓN DE PAGAR
-                    Button(
-                        onClick = {
-                            println("Procesando pago de: $total €")
-                            if (basketItems.isNotEmpty()) {
-                                val totalCesta = basketItems.sumOf { it.price * it.quantity }
-                                procesarPagoEnFirebase(basketItems, totalCesta)
-                            } else {
-                                println("LA CESTA ESTÁ VACÍA")
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2E7D32) // Verde oscuro tipo "éxito"
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
-                    ) {
-                        Icon(Icons.Default.Payment, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "PAGAR AHORA",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+            } else {
+                LazyColumn(modifier = Modifier.padding(8.dp)) {
+                    items(favoriteItems) { item ->
+                        ProductItemRow(
+                            product = item,
+                            isFavorite = true,
+                            onClick = {},
+                            onToggleFavorite = { onToggleFavorite(item.id) }
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        "IVA incluido en el precio final",
-                        fontSize = 10.sp,
-                        color = Color.Gray
-                    )
                 }
             }
         }
     }
 }
 
+/**
+ * FILA DE MENÚ SUPERIOR: Contenedor de accesos directos (Carrito, Favoritos, etc.).
+ */
 @Composable
-fun FilterSideMenu(onClose: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable { onClose() }) {
-        Column(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.75f).background(Color(0xFFEBE6DF), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).align(Alignment.CenterEnd).clickable(enabled = false) {}) {
-            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF8B5A33), RoundedCornerShape(topStart = 16.dp)).padding(horizontal = 20.dp, vertical = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Filtro articulos", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                IconButton(onClick = onClose, modifier = Modifier.size(24.dp).border(1.5.dp, Color.White, CircleShape)) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp))
-                }
-            }
-            Column(modifier = Modifier.padding(32.dp)) {
-                FilterMenuItem("Grupo")
-                Spacer(modifier = Modifier.height(32.dp))
-                FilterMenuItem("Familia")
-                Spacer(modifier = Modifier.height(32.dp))
-                FilterMenuItem("Subfamilia")
-            }
-        }
-    }
-}
-
-@Composable
-fun FilterMenuItem(text: String) {
-    Text(text = text, color = Color.DarkGray, fontSize = 18.sp, fontWeight = FontWeight.Normal, modifier = Modifier.fillMaxWidth())
-}
-
-@Composable
-fun TopMenuRow(onMenuClick: () -> Unit, onBasketClick: () -> Unit) {
+fun TopMenuRow(onMenuClick: () -> Unit, onBasketClick: () -> Unit, onExitClick: () -> Unit, onFavoritesClick: () -> Unit, favoritesCount: Int) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        TopMenuItem(Icons.Default.ExitToApp, "Salir", onClick = {})
+        TopMenuItem(Icons.Default.ExitToApp, "Salir", onClick = onExitClick)
         TopMenuItem(Icons.Default.ShoppingCart, "Cesta", hasBadge = true, onClick = onBasketClick)
         TopMenuItem(Icons.Default.Refresh, "Sugerido", onClick = {})
         TopMenuItem(Icons.Default.MenuBook, "Tarifa", isSelected = true, onClick = {})
-        TopMenuItem(Icons.Default.StarBorder, "Favoritos", hasBadge = true, onClick = {})
+        TopMenuItem(Icons.Default.Star, "Favoritos", hasBadge = favoritesCount > 0, onClick = onFavoritesClick)
         TopMenuItem(Icons.Default.GridView, "Catálogo", onClick = {})
         IconButton(onClick = onMenuClick) { Icon(Icons.Default.Menu, contentDescription = null) }
     }
 }
 
+/**
+ * ELEMENTO INDIVIDUAL DEL MENÚ SUPERIOR: Ícono con etiqueta y posible notificación (badge).
+ */
 @Composable
 fun TopMenuItem(icon: ImageVector, label: String, isSelected: Boolean = false, hasBadge: Boolean = false, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
         Box {
             Icon(imageVector = icon, contentDescription = label, tint = if (isSelected) Color.DarkGray else Color.Gray, modifier = if (isSelected) Modifier.background(Color.LightGray, CircleShape).padding(8.dp) else Modifier.padding(8.dp))
             if (hasBadge) {
-                Box(modifier = Modifier.size(8.dp).background(Color.Red, CircleShape).align(Alignment.TopEnd))
+                Box(modifier = Modifier.size(10.dp).background(Color.Red, CircleShape).border(1.dp, Color.White, CircleShape).align(Alignment.TopEnd))
             }
         }
         Text(text = label, fontSize = 10.sp, color = Color.DarkGray)
     }
 }
 
+/**
+ * LISTADO DE PRODUCTOS: Encargado de renderizar la lista LazyColumn.
+ */
+@Composable
+fun ProductList(products: List<Product>, favoriteIds: List<String>, modifier: Modifier, onSelect: (Product) -> Unit, onToggleFavorite: (String) -> Unit) {
+    LazyColumn(modifier = modifier.fillMaxWidth().padding(8.dp)) {
+        items(products) { product ->
+            ProductItemRow(
+                product = product,
+                isFavorite = favoriteIds.contains(product.id),
+                onClick = { onSelect(product) },
+                onToggleFavorite = { onToggleFavorite(product.id) }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+/**
+ * FILA DE PRODUCTO INDIVIDUAL: Diseño de la tarjeta de producto con estrella de favorito.
+ */
+@Composable
+fun ProductItemRow(product: Product, isFavorite: Boolean, onClick: () -> Unit, onToggleFavorite: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = if (product.isSelected) Color(0xFFE3F2FD) else Color.White), modifier = Modifier.fillMaxWidth().clickable { onClick() }, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // ESTRELLA DE FAVORITOS
+            IconButton(onClick = onToggleFavorite, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = null,
+                    tint = if (isFavorite) Color(0xFFFFB300) else Color.LightGray,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Image(painter = painterResource(id = product.imageRes), contentDescription = null, modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(product.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    Text(product.id, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(45.dp))
+                    Text("Stock: ${product.stock}", fontSize = 10.sp, modifier = Modifier.width(60.dp))
+                    Spacer(modifier = Modifier.weight(1f)); Text("${"%.2f".format(product.totalProductPrice)} €", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Icon(Icons.Default.CheckCircle, null, tint = if (product.isSelected) Color(0xFF2196F3) else Color(0xFFE0E0E0), modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(text = product.quantity.toString(), modifier = Modifier.width(30.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (product.isSelected) Color(0xFF2196F3) else Color.Gray)
+        }
+    }
+}
+
+/**
+ * CABECERA DE PEDIDO: Muestra la información del pedido actual y el precio total.
+ */
 @Composable
 fun OrderHeaderRow(total: Double) {
     Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF535A66), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -381,6 +387,9 @@ fun OrderHeaderRow(total: Double) {
     }
 }
 
+/**
+ * SECCIÓN DE ENTRADA DE DATOS: Permite editar el precio (mediante dropdown) y las unidades del producto seleccionado.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductEntrySection(selectedProduct: Product?, onQuantityChange: (Int) -> Unit, onPriceChange: (Double) -> Unit) {
@@ -416,6 +425,9 @@ fun ProductEntrySection(selectedProduct: Product?, onQuantityChange: (Int) -> Un
     }
 }
 
+/**
+ * FILA DE ACCIONES RÁPIDAS: Botones para sumar cantidades predefinidas o resetear el contador.
+ */
 @Composable
 fun QuickActionsRow(onAddQuantity: (Int) -> Unit, onResetQuantity: () -> Unit) {
     val amounts = listOf(1, 5, 10, 25, 50)
@@ -427,37 +439,40 @@ fun QuickActionsRow(onAddQuantity: (Int) -> Unit, onResetQuantity: () -> Unit) {
     }
 }
 
+/**
+ * BARRA DE BÚSQUEDA: Incluye un campo de texto con ícono de lupa y un botón de confirmación.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProductList(products: List<Product>, modifier: Modifier, onSelect: (Product) -> Unit) {
-    LazyColumn(modifier = modifier.fillMaxWidth().padding(8.dp)) {
-        items(products) { product ->
-            ProductItemRow(product, onClick = { onSelect(product) })
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-    }
-}
+fun SearchBarRow(query: String, onQueryChange: (String) -> Unit) {
+    var lastSearched by remember { mutableStateOf("") }
+    Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFD1D5DB)).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(text = if (lastSearched.isEmpty()) "" else "Buscando: $lastSearched", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563), modifier = Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
 
-@Composable
-fun ProductItemRow(product: Product, onClick: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = if (product.isSelected) Color(0xFFE3F2FD) else Color.White), modifier = Modifier.fillMaxWidth().clickable { onClick() }, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Image(painter = painterResource(id = product.imageRes), contentDescription = null, modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(product.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    Text(product.id, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(45.dp))
-                    Text("Stock: ${product.stock}", fontSize = 10.sp, modifier = Modifier.width(60.dp))
-                    Spacer(modifier = Modifier.weight(1f)); Text("${"%.2f".format(product.totalProductPrice)} €", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+                // ICONO DE LUPA: Añadido a la izquierda del texto
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                placeholder = { Text("Buscar...", textAlign = TextAlign.Center, fontSize = 11.sp, modifier = Modifier.fillMaxWidth()) },
+                modifier = Modifier.width(170.dp).height(48.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, unfocusedBorderColor = Color.Transparent),
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 12.sp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(modifier = Modifier.size(40.dp).clickable { lastSearched = query }, shape = CircleShape, color = Color(0xFF4B5563)) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
             }
-            Icon(Icons.Default.CheckCircle, null, tint = if (product.isSelected) Color(0xFF2196F3) else Color(0xFFE0E0E0), modifier = Modifier.size(24.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(text = product.quantity.toString(), modifier = Modifier.width(30.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (product.isSelected) Color(0xFF2196F3) else Color.Gray)
         }
     }
 }
 
+/**
+ * BARRA DE ESTADO INFERIOR: Muestra el recuento total de artículos y opciones de ordenación.
+ */
 @Composable
 fun BottomStatusBar() {
     Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFEFEBE4)).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -470,12 +485,77 @@ fun BottomStatusBar() {
     }
 }
 
+/**
+ * MENÚ LATERAL DE FILTROS: Overlay que permite filtrar por categorías (Grupo, Familia, etc.).
+ */
+@Composable
+fun FilterSideMenu(onClose: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable { onClose() }) {
+        Column(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.75f).background(Color(0xFFEBE6DF), RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).align(Alignment.CenterEnd).clickable(enabled = false) {}) {
+            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF8B5A33), RoundedCornerShape(topStart = 16.dp)).padding(horizontal = 20.dp, vertical = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Filtro articulos", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
+            }
+            Column(modifier = Modifier.padding(32.dp)) {
+                Text("Grupo", fontSize = 18.sp); Spacer(modifier = Modifier.height(32.dp))
+                Text("Familia", fontSize = 18.sp); Spacer(modifier = Modifier.height(32.dp))
+                Text("Subfamilia", fontSize = 18.sp)
+            }
+        }
+    }
+}
+
+/**
+ * PANTALLA DEL CARRITO (BASKET): Muestra los productos añadidos, permite eliminarlos y procesar el pago.
+ */
+@Composable
+fun BasketScreen(basketItems: List<Product>, onClose: () -> Unit, onRemove: (Product) -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable { onClose() }) {
+        Column(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.85f).background(Color.White).align(Alignment.CenterEnd).clickable(enabled = false) { }) {
+            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2196F3)).padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Precompra", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
+            }
+            LazyColumn(modifier = Modifier.weight(1f).padding(8.dp)) {
+                items(basketItems) { item ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Image(painter = painterResource(id = item.imageRes), contentDescription = null, modifier = Modifier.size(45.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("${item.quantity} x ${"%.2f".format(item.price)}€", fontSize = 11.sp)
+                        }
+                        IconButton(onClick = { onRemove(item) }) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
+                    }
+                    HorizontalDivider(color = Color.LightGray)
+                }
+            }
+            val total = basketItems.sumOf { it.price * it.quantity }
+            Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 8.dp, color = Color(0xFFF1F3F4)) {
+                Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("TOTAL:", fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text("${"%.2f".format(total)} €", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1B5E20))
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { if (basketItems.isNotEmpty()) procesarPagoEnFirebase(basketItems, total) }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)), shape = RoundedCornerShape(12.dp)) {
+                        Icon(Icons.Default.Payment, null); Spacer(modifier = Modifier.width(12.dp)); Text("PAGAR AHORA")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * BOTÓN DE OPCIÓN FLOTANTE: Diseño de cápsula para las opciones extra del FAB (Upsell, Cross-sell).
+ */
 @Composable
 fun FloatingOptionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Surface(shape = RoundedCornerShape(32.dp), color = Color(0xFF9BAABF), shadowElevation = 4.dp, modifier = Modifier.clickable { onClick() }) {
+    Surface(shape = RoundedCornerShape(32.dp), color = Color(0xFF9BAABF), modifier = Modifier.clickable { onClick() }) {
         Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-            Text(text = label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Text(label, color = Color.White, fontSize = 14.sp)
         }
     }
 }
